@@ -70,12 +70,7 @@ namespace AutoCADCommands
         /// <returns>The result.</returns>
         public static bool IsDocumentNew(Document doc = null) // newly 20140730
         {
-            if (doc == null)
-            {
-                doc = Application.DocumentManager.MdiActiveDocument;
-            }
-
-            return !App.IsDocumentSaved(doc);
+            return !App.IsDocumentSaved(doc ?? Application.DocumentManager.MdiActiveDocument);
         }
 
         /// <summary>
@@ -85,11 +80,7 @@ namespace AutoCADCommands
         /// <returns>The result.</returns>
         public static bool IsDocumentSaved(Document doc = null) // newly 20140730
         {
-            if (doc == null)
-            {
-                doc = Application.DocumentManager.MdiActiveDocument;
-            }
-
+            doc = doc ?? Application.DocumentManager.MdiActiveDocument;
             return doc.Name != null && doc.Name.Contains(":");
         }
 
@@ -353,7 +344,7 @@ namespace AutoCADCommands
     public static class Arx
     {
         [DllImport("acad.exe", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Cdecl, EntryPoint = "acedCmd")]
-        public static extern int acedCmd(System.IntPtr vlist);
+        public static extern int acedCmd(IntPtr vlist);
 
         [DllImport("acad.exe", CharSet = CharSet.Auto, CallingConvention = CallingConvention.Cdecl)]
         public static extern int ads_queueexpr(string strExpr);

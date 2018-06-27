@@ -1,13 +1,8 @@
-﻿using System;
+﻿using Autodesk.AutoCAD.DatabaseServices;
+using Autodesk.AutoCAD.Geometry;
+using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-
-using Autodesk.AutoCAD.ApplicationServices;
-using Autodesk.AutoCAD.DatabaseServices;
-using Autodesk.AutoCAD.EditorInput;
-using Autodesk.AutoCAD.Geometry;
-using Autodesk.AutoCAD.Runtime;
 
 namespace AutoCADCommands
 {
@@ -19,232 +14,256 @@ namespace AutoCADCommands
         #region symbol tables & dictionaries
 
         /// <summary>
-        /// 获取图层ID，无此图层则新建
+        /// Gets all records of a symbol table.
         /// </summary>
-        /// <param name="layerName">图层名</param>
-        /// <returns>图层ID</returns>
-        public static ObjectId GetLayerId(string layerName)
+        /// <param name="symbolTableId">The symbol table ID.</param>
+        /// <returns>The record IDs.</returns>
+        public static ObjectId[] GetSymbolTableRecords(ObjectId symbolTableId)
         {
-            using (Transaction trans = HostApplicationServices.WorkingDatabase.TransactionManager.StartTransaction())
+            using (var trans = symbolTableId.Database.TransactionManager.StartTransaction())
             {
-                LayerTable layerTable = (LayerTable)trans.GetObject(HostApplicationServices.WorkingDatabase.LayerTableId, OpenMode.ForRead);
-                if (layerTable.Has(layerName))
+                var table = (SymbolTable)trans.GetObject(symbolTableId, OpenMode.ForRead);
+                return table.Cast<ObjectId>().ToArray();
+            }
+        }
+
+        /// <summary>
+        /// Gets all record names of a symbol table.
+        /// </summary>
+        /// <param name="symbolTableId">The symbol table ID.</param>
+        /// <returns>The record names.</returns>
+        public static string[] GetSymbolTableRecordNames(ObjectId symbolTableId)
+        {
+            return DbHelper
+                .GetSymbolTableRecords(symbolTableId)
+                .QOpenForRead<SymbolTableRecord>()
+                .Select(record => record.Name)
+                .ToArray();
+        }
+
+        /// <summary>
+        /// Gets a symbol table record by name.
+        /// </summary>
+        /// <param name="symbolTableId">The symbol table ID.</param>
+        /// <param name="name">The record name.</param>
+        /// <param name="defaultValue">The default value if not found.</param>
+        /// <param name="create">The factory method if not found.</param>
+        /// <returns>The record ID.</returns>
+        public static ObjectId GetSymbolTableRecord(ObjectId symbolTableId, string name, ObjectId? defaultValue = null, Func<SymbolTableRecord> create = null)
+        {
+            using (var trans = symbolTableId.Database.TransactionManager.StartTransaction())
+            {
+                var table = (SymbolTable)trans.GetObject(symbolTableId, OpenMode.ForRead);
+                if (table.Has(name))
                 {
-                    return layerTable[layerName];
+                    return table[name];
                 }
-                else
+
+                if (create != null)
                 {
-                    layerTable.UpgradeOpen();
-                    LayerTableRecord ltr = new LayerTableRecord();
-                    ltr.Name = layerName;
-                    ObjectId result = layerTable.Add(ltr);
-                    trans.AddNewlyCreatedDBObject(ltr, true);
+                    var record = create();
+                    table.UpgradeOpen();
+                    var result = table.Add(record);
+                    trans.AddNewlyCreatedDBObject(record, true);
                     trans.Commit();
                     return result;
                 }
             }
+
+            return defaultValue.Value;
         }
 
         /// <summary>
-        /// 获取所有层表记录ID newly 20130729
+        /// Gets layer ID by name. Creates new if not found.
         /// </summary>
-        /// <returns>ID数组</returns>
-        public static ObjectId[] GetAllLayerIds()
+        /// <param name="layerName">The layer name.</param>
+        /// <param name="db">The database.</param>
+        /// <returns>The layer ID.</returns>
+        public static ObjectId GetLayerId(string layerName, Database db = null)
         {
-            using (Transaction trans = HostApplicationServices.WorkingDatabase.TransactionManager.StartTransaction())
-            {
-                LayerTable layerTable = (LayerTable)trans.GetObject(HostApplicationServices.WorkingDatabase.LayerTableId, OpenMode.ForRead);
-                return layerTable.Cast<ObjectId>().ToArray();
-            }
+            return DbHelper.GetSymbolTableRecord(
+                symbolTableId: (db ?? HostApplicationServices.WorkingDatabase).LayerTableId,
+                name: layerName,
+                create: () => new LayerTableRecord { Name = layerName });
         }
 
         /// <summary>
-        /// 获取所有图层名称
+        /// Gets all layer IDs.
         /// </summary>
-        /// <returns>图层名称</returns>
-        public static string[] GetAllLayerNames()
+        /// <param name="db">The database.</param>
+        /// <returns>The layer IDs.</returns>
+        public static ObjectId[] GetAllLayerIds(Database db = null)
         {
-            using (Transaction trans = HostApplicationServices.WorkingDatabase.TransactionManager.StartTransaction())
-            {
-                LayerTable layerTable = (LayerTable)trans.GetObject(HostApplicationServices.WorkingDatabase.LayerTableId, OpenMode.ForRead);
-                return layerTable.Cast<ObjectId>().Select(x => x.QOpenForRead<LayerTableRecord>().Name).ToArray();
-            }
+            return DbHelper.GetSymbolTableRecords((db ?? HostApplicationServices.WorkingDatabase).LayerTableId);
         }
 
         /// <summary>
-        /// 确保一个图层可见 newly 20130730
+        /// Gets all layer names.
         /// </summary>
-        /// <param name="layerName">图层名</param>
+        /// <param name="db">The database.</param>
+        /// <returns>The layer names.</returns>
+        public static string[] GetAllLayerNames(Database db = null)
+        {
+            return DbHelper.GetSymbolTableRecordNames((db ?? HostApplicationServices.WorkingDatabase).LayerTableId);
+        }
+
+        /// <summary>
+        /// Ensures a layer is visible.
+        /// </summary>
+        /// <param name="layerName">The layer name.</param>
         public static void EnsureLayerOn(string layerName)
         {
-            var id = GetLayerId(layerName);
-            id.QOpenForWrite<LayerTableRecord>(l =>
+            var id = DbHelper.GetLayerId(layerName);
+            id.QOpenForWrite<LayerTableRecord>(layer =>
             {
-                l.IsFrozen = false;
-                l.IsHidden = false;
-                l.IsOff = false;
+                layer.IsFrozen = false;
+                layer.IsHidden = false;
+                layer.IsOff = false;
             });
         }
 
         /// <summary>
-        /// 获取块表记录ID
+        /// Gets block table record ID by block name.
         /// </summary>
-        /// <param name="blockName">块名</param>
-        /// <returns>结果</returns>
-        public static ObjectId GetBlockId(string blockName)
+        /// <param name="blockName">The block name.</param>
+        /// <param name="db">The database.</param>
+        /// <returns>The block table ID.</returns>
+        public static ObjectId GetBlockId(string blockName, Database db = null)
         {
-            return GetBlockId(HostApplicationServices.WorkingDatabase, blockName);
+            return DbHelper.GetSymbolTableRecord(
+                symbolTableId: (db ?? HostApplicationServices.WorkingDatabase).BlockTableId,
+                name: blockName,
+                defaultValue: ObjectId.Null);
         }
 
         /// <summary>
-        /// 获取块表记录ID
+        /// Gets all block table record IDs.
         /// </summary>
-        /// <param name="db">数据库</param>
-        /// <param name="blockName">块名</param>
-        /// <returns>结果</returns>
-        public static ObjectId GetBlockId(Database db, string blockName)
+        /// <param name="db">The database.</param>
+        /// <returns>The object ID array.</returns>
+        public static ObjectId[] GetAllBlockIds(Database db = null)
         {
-            using (Transaction trans = HostApplicationServices.WorkingDatabase.TransactionManager.StartTransaction())
+            return DbHelper.GetSymbolTableRecords((db ?? HostApplicationServices.WorkingDatabase).BlockTableId);
+        }
+
+        /// <summary>
+        /// Gets all block names.
+        /// </summary>
+        /// <param name="db">The database.</param>
+        /// <returns>The block name array.</returns>
+        public static string[] GetAllBlockNames(Database db = null)
+        {
+            return DbHelper.GetSymbolTableRecordNames((db ?? HostApplicationServices.WorkingDatabase).BlockTableId);
+        }
+
+        /// <summary>
+        /// Gets linetype ID by name. Returns the continuous linetype as default if not found.
+        /// </summary>
+        /// <param name="linetypeName">The linetype name.</param>
+        /// <param name="db">The database.</param>
+        /// <returns>The linetype ID.</returns>
+        public static ObjectId GetLinetypeId(string linetypeName, Database db = null)
+        {
+            db = db ?? HostApplicationServices.WorkingDatabase;
+            return DbHelper.GetSymbolTableRecord(
+                symbolTableId: db.LinetypeTableId,
+                name: linetypeName,
+                defaultValue: db.ContinuousLinetype);
+        }
+
+        /// <summary>
+        /// Gets text style ID by name. Returns the current TEXTSTYLE as default if not found.
+        /// </summary>
+        /// <param name="textStyleName">The text style name.</param>
+        /// <param name="createIfNotFound">Whether to create new if not found.</param>
+        /// <param name="db">The database.</param>
+        /// <returns>The text style ID.</returns>
+        public static ObjectId GetTextStyleId(string textStyleName, bool createIfNotFound = false, Database db = null)
+        {
+            db = db ?? HostApplicationServices.WorkingDatabase;
+            return DbHelper.GetSymbolTableRecord(
+                symbolTableId: db.TextStyleTableId,
+                name: textStyleName,
+                create: () => new TextStyleTableRecord { Name = textStyleName },
+                defaultValue: db.Textstyle);
+        }
+
+        /// <summary>
+        /// Gets dimension style ID by name. Returns the current DIMSTYLE as default if not found.
+        /// </summary>
+        /// <param name="dimStyleName">The dimension style name.</param>
+        /// <param name="db">The database.</param>
+        /// <returns>The dimension style ID.</returns>
+        public static ObjectId GetDimstyleId(string dimStyleName, Database db = null)
+        {
+            db = db ?? HostApplicationServices.WorkingDatabase;
+            return DbHelper.GetSymbolTableRecord(
+                symbolTableId: db.DimStyleTableId,
+                name: dimStyleName,
+                defaultValue: db.Dimstyle);
+        }
+
+        /// <summary>
+        /// Gets a dictionary object.
+        /// </summary>
+        /// <param name="dictionaryId">The dictionary ID.</param>
+        /// <param name="name">The entry name.</param>
+        /// <param name="defaultValue">The default value if not found.</param>
+        /// <param name="create">The factory method if not found.</param>
+        /// <returns>The object ID.</returns>
+        public static ObjectId GetDictionaryObject(ObjectId dictionaryId, string name, ObjectId? defaultValue = null, Func<DBObject> create = null)
+        {
+            using (var trans = dictionaryId.Database.TransactionManager.StartTransaction())
             {
-                BlockTable blkTab = (BlockTable)trans.GetObject(db.BlockTableId, OpenMode.ForRead);
-                if (blkTab.Has(blockName))
+                var dictionary = (DBDictionary)trans.GetObject(dictionaryId, OpenMode.ForRead);
+                if (dictionary.Contains(name))
                 {
-                    return blkTab[blockName];
+                    return dictionary.GetAt(name);
                 }
-                else
+
+                if (create != null)
                 {
-                    return ObjectId.Null;
+                    var dictObject = create();
+                    dictionary.UpgradeOpen();
+                    var result = dictionary.SetAt(name, dictObject);
+                    trans.AddNewlyCreatedDBObject(dictObject, true);
+                    trans.Commit();
+                    return result;
                 }
             }
+
+            return defaultValue.Value;
         }
 
         /// <summary>
-        /// 获取所有块表记录ID newly 20140521
+        /// Gets group ID by name.
         /// </summary>
-        /// <returns>ID数组</returns>
-        public static ObjectId[] GetAllBlockIds()
+        /// <param name="groupName">The group name.</param>
+        /// <param name="db">The database.</param>
+        /// <returns>The group ID.</returns>
+        public static ObjectId GetGroupId(string groupName, Database db = null)
         {
-            using (Transaction trans = HostApplicationServices.WorkingDatabase.TransactionManager.StartTransaction())
-            {
-                BlockTable layerTable = (BlockTable)trans.GetObject(HostApplicationServices.WorkingDatabase.BlockTableId, OpenMode.ForRead);
-                return layerTable.Cast<ObjectId>().ToArray();
-            }
+            return DbHelper.GetDictionaryObject(
+                dictionaryId: (db ?? HostApplicationServices.WorkingDatabase).GroupDictionaryId,
+                name: groupName,
+                defaultValue: ObjectId.Null);
         }
 
         /// <summary>
-        /// 获取所有块定义名称 newly 20140521
+        /// Gets group ID by entity ID.
         /// </summary>
-        /// <returns>块名称</returns>
-        public static string[] GetAllBlockNames()
+        /// <param name="entityId">The entity ID.</param>
+        /// <returns>The group ID.</returns>
+        public static ObjectId GetGroupId(ObjectId entityId)
         {
-            using (Transaction trans = HostApplicationServices.WorkingDatabase.TransactionManager.StartTransaction())
-            {
-                BlockTable layerTable = (BlockTable)trans.GetObject(HostApplicationServices.WorkingDatabase.BlockTableId, OpenMode.ForRead);
-                return layerTable.Cast<ObjectId>().Select(x => x.QOpenForRead<BlockTableRecord>().Name).ToArray();
-            }
-        }
-
-        /// <summary>
-        /// 获取线型ID
-        /// </summary>
-        /// <param name="linetypeName">线型名</param>
-        /// <returns>结果</returns>
-        public static ObjectId GetLinetypeId(string linetypeName)
-        {
-            Database db = HostApplicationServices.WorkingDatabase;
-            using (Transaction trans = db.TransactionManager.StartTransaction())
-            {
-                LinetypeTable oltTab = (LinetypeTable)trans.GetObject(db.LinetypeTableId, OpenMode.ForRead);
-                if (oltTab.Has(linetypeName))
-                {
-                    return oltTab[linetypeName];
-                }
-                else
-                {
-                    return db.ContinuousLinetype;
-                }
-            }
-        }
-
-        /// <summary>
-        /// 获取文字样式ID
-        /// </summary>
-        /// <param name="textStyleName">文字样式名</param>
-        /// <param name="createIfNotExist">自动创建</param>
-        /// <returns>结果</returns>
-        public static ObjectId GetTextStyleId(string textStyleName, bool createIfNotExist = false)
-        {
-            Database db = HostApplicationServices.WorkingDatabase;
-            using (Transaction trans = db.TransactionManager.StartTransaction())
-            {
-                TextStyleTable tsTab = (TextStyleTable)trans.GetObject(db.TextStyleTableId, OpenMode.ForRead);
-                if (tsTab.Has(textStyleName))
-                {
-                    return tsTab[textStyleName];
-                }
-                else
-                {
-                    if (createIfNotExist)
-                    {
-                        tsTab.UpgradeOpen();
-                        TextStyleTableRecord tstr = new TextStyleTableRecord { Name = textStyleName };
-                        var result = tsTab.Add(tstr);
-                        trans.AddNewlyCreatedDBObject(tstr, true);
-                        trans.Commit();
-                        return result;
-                    }
-                    else
-                    {
-                        return db.Textstyle;
-                    }
-                }
-            }
-        }
-
-        /// <summary>
-        /// 获取标注样式ID
-        /// </summary>
-        /// <param name="dimstyle">样式名</param>
-        /// <returns>样式ID</returns>
-        public static ObjectId GetDimstyleId(string dimstyle)
-        {
-            using (Transaction trans = HostApplicationServices.WorkingDatabase.TransactionManager.StartTransaction())
-            {
-                DimStyleTable dsTable = (DimStyleTable)trans.GetObject(HostApplicationServices.WorkingDatabase.DimStyleTableId, OpenMode.ForRead);
-                if (dsTable.Has(dimstyle))
-                {
-                    return dsTable[dimstyle];
-                }
-                else
-                {
-                    return HostApplicationServices.WorkingDatabase.Dimstyle;
-                }
-            }
-        }
-
-        /// <summary>
-        /// 获取组ID
-        /// </summary>
-        /// <param name="groupName">组名</param>
-        /// <returns>结果</returns>
-        public static ObjectId GetGroupId(string groupName)
-        {
-            var groupDict = HostApplicationServices.WorkingDatabase.GroupDictionaryId.QOpenForRead<DBDictionary>();
-            return groupDict.GetAt(groupName);
-        }
-
-        /// <summary>
-        /// 获取组ID
-        /// </summary>
-        /// <param name="entId">组中实体ID</param>
-        /// <returns>结果</returns>
-        public static ObjectId GetGroupId(ObjectId entId)
-        {
-            var groupDict = HostApplicationServices.WorkingDatabase.GroupDictionaryId.QOpenForRead<DBDictionary>();
-            var ent = entId.QOpenForRead<Entity>();
+            var groupDict = entityId.Database.GroupDictionaryId.QOpenForRead<DBDictionary>();
+            var entity = entityId.QOpenForRead<Entity>();
             try
             {
-                return groupDict.Cast<DBDictionaryEntry>().First(x => x.Value.QOpenForRead<Group>().Has(ent)).Value;
+                return groupDict
+                    .Cast<DBDictionaryEntry>()
+                    .First(entry => entry.Value.QOpenForRead<Group>().Has(entity))
+                    .Value;
             }
             catch
             {
@@ -253,10 +272,10 @@ namespace AutoCADCommands
         }
 
         /// <summary>
-        /// 获取组中所有实体ID集合
+        /// Gets all entity IDs in a group.
         /// </summary>
-        /// <param name="groupId">组ID</param>
-        /// <returns>结果</returns>
+        /// <param name="groupId">The group ID.</param>
+        /// <returns>The entity IDs.</returns>
         public static IEnumerable<ObjectId> GetEntityIdsInGroup(ObjectId groupId)
         {
             var group = groupId.QOpenForRead<Group>();
@@ -264,63 +283,25 @@ namespace AutoCADCommands
             {
                 return group.GetAllEntityIds();
             }
-            else
-            {
-                return new ObjectId[0];
-            }
-        }
 
-        /// <summary>
-        /// 获取布局ID
-        /// </summary>
-        /// <param name="layoutName">布局名</param>
-        /// <returns>结果</returns>
-        public static ObjectId GetLayoutId(string layoutName)
-        {
-            Database db = HostApplicationServices.WorkingDatabase;
-            ObjectId result = ObjectId.Null;
-            using (Transaction trans = db.TransactionManager.StartTransaction())
-            {
-                DBDictionary dic = trans.GetObject(db.LayoutDictionaryId, OpenMode.ForRead) as DBDictionary;
-                try
-                {
-                    result = dic.GetAt(layoutName);
-                }
-                catch
-                {
-                }
-                if (result != ObjectId.Null)
-                {
-                }
-                else
-                {
-                    result = LayoutManager.Current.CreateLayout(layoutName);
-                }
-                trans.Commit();
-            }
-            return result;
+            return Array.Empty<ObjectId>();
         }
 
         #endregion
 
         #region xdata
 
-        /// <summary>
-        /// 获取FXD数据
-        /// </summary>
-        /// <param name="dbo">对象</param>
-        /// <param name="appName"></param>
-        /// <returns></returns>
+        [Obsolete("Legacy data store mechanism. Use FlexDataStore instead.")]
         public static string GetFirstXData(this DBObject dbo, string appName)
         {
-            ResultBuffer xdataForApp = dbo.GetXDataForApplication(appName);
+            var xdataForApp = dbo.GetXDataForApplication(appName);
             if (xdataForApp == null)
             {
                 return string.Empty;
             }
             foreach (var value in xdataForApp.AsArray())
             {
-                if (value.TypeCode != 1001)
+                if (value.TypeCode != (int)DxfCode.ExtendedDataRegAppName)
                 {
                     return value.Value.ToString();
                 }
@@ -328,22 +309,17 @@ namespace AutoCADCommands
             return string.Empty;
         }
 
-        /// <summary>
-        /// 获取FXD数据
-        /// </summary>
-        /// <param name="dbo"></param>
-        /// <param name="appName"></param>
-        /// <returns></returns>
+        [Obsolete("Legacy data store mechanism. Use FlexDataStore instead.")]
         public static object GetFirstXDataT(this DBObject dbo, string appName)
         {
-            ResultBuffer xdataForApp = dbo.GetXDataForApplication(appName);
+            var xdataForApp = dbo.GetXDataForApplication(appName);
             if (xdataForApp == null)
             {
                 return null;
             }
             foreach (var value in xdataForApp.AsArray())
             {
-                if (value.TypeCode != 1001)
+                if (value.TypeCode != (int)DxfCode.ExtendedDataRegAppName)
                 {
                     return value.Value;
                 }
@@ -351,71 +327,47 @@ namespace AutoCADCommands
             return null;
         }
 
-        /// <summary>
-        /// 设置FXD数据
-        /// </summary>
-        /// <param name="dbo"></param>
-        /// <param name="appName"></param>
-        /// <param name="value"></param>
+        [Obsolete("Legacy data store mechanism. Use FlexDataStore instead.")]
         public static void SetFirstXData(this DBObject dbo, string appName, string value)
         {
-            TypedValue[] newXData = new TypedValue[] { new TypedValue(1001, appName), new TypedValue(1000, value) };
-            dbo.XData = new ResultBuffer(newXData);
+            dbo.XData = new ResultBuffer(new[]
+            {
+                new TypedValue((int)DxfCode.ExtendedDataRegAppName, appName),
+                new TypedValue((int)DxfCode.ExtendedDataAsciiString, value)
+            });
         }
 
-        /// <summary>
-        /// 设置FXD数据
-        /// </summary>
-        /// <param name="dbo"></param>
-        /// <param name="appName"></param>
-        /// <param name="value"></param>
+        [Obsolete("Legacy data store mechanism. Use FlexDataStore instead.")]
         public static void SetFirstXDataT(this DBObject dbo, string appName, object value) // newly 20111207
         {
-            int nDCode = 1000;
-            if (value is Int16)
+            var typeCode = value is Int16
+                ? (int)DxfCode.ExtendedDataInteger16
+                : value is Int32
+                    ? (int)DxfCode.ExtendedDataInteger32
+                    : value is Double
+                        ? (int)DxfCode.ExtendedDataReal
+                        : (int)DxfCode.ExtendedDataAsciiString;
+
+            dbo.XData = new ResultBuffer(new[]
             {
-                nDCode = (int)DxfCode.ExtendedDataInteger16;
-            }
-            else if (value is int)
-            {
-                nDCode = (int)DxfCode.ExtendedDataInteger32;
-            }
-            else if (value is double)
-            {
-                nDCode = (int)DxfCode.ExtendedDataReal;
-            }
-            TypedValue[] newXData = new TypedValue[] { new TypedValue(1001, appName), new TypedValue(nDCode, value) };
-            dbo.XData = new ResultBuffer(newXData);
+                new TypedValue((int)DxfCode.ExtendedDataRegAppName, appName),
+                new TypedValue(typeCode, value)
+            });
         }
 
-        /// <summary>
-        /// 获取FXD数据
-        /// </summary>
-        /// <param name="dboId"></param>
-        /// <param name="appName"></param>
-        /// <returns></returns>
+        [Obsolete("Legacy data store mechanism. Use FlexDataStore instead.")]
         public static string GetFirstXData(this ObjectId dboId, string appName)
         {
             return dboId.QOpenForRead().GetFirstXData(appName);
         }
 
-        /// <summary>
-        /// 设置FXD数据
-        /// </summary>
-        /// <param name="dboId"></param>
-        /// <param name="appName"></param>
-        /// <param name="value"></param>
+        [Obsolete("Legacy data store mechanism. Use FlexDataStore instead.")]
         public static void SetFirstXData(this ObjectId dboId, string appName, string value)
         {
             dboId.QOpenForWrite(dbo => dbo.SetFirstXData(appName, value));
         }
 
-        /// <summary>
-        /// 设置FXD数据
-        /// </summary>
-        /// <param name="dboId"></param>
-        /// <param name="appName"></param>
-        /// <param name="value"></param>
+        [Obsolete("Legacy data store mechanism. Use FlexDataStore instead.")]
         public static void SetFirstXDataT(this ObjectId dboId, string appName, object value) // newly 20111207
         {
             dboId.QOpenForWrite(dbo => dbo.SetFirstXDataT(appName, value));
@@ -425,6 +377,7 @@ namespace AutoCADCommands
         /// Makes sure app names are registered.
         /// </summary>
         /// <param name="appNames">The app names.</param>
+        [Obsolete("Legacy data store mechanism. Use FlexDataStore instead.")]
         public static void AffirmRegApp(params string[] appNames) // newly 20130122
         {
             DbHelper.AffirmRegApp(HostApplicationServices.WorkingDatabase, appNames);
@@ -435,11 +388,12 @@ namespace AutoCADCommands
         /// </summary>
         /// <param name="db">The database to register to.</param>
         /// <param name="appNames">The app names.</param>
+        [Obsolete("Legacy data store mechanism. Use FlexDataStore instead.")]
         public static void AffirmRegApp(Database db, params string[] appNames) // newly 20130122
         {
-            using (var transaction = db.TransactionManager.StartTransaction())
+            using (var trans = db.TransactionManager.StartTransaction())
             {
-                var table = transaction.GetObject(db.RegAppTableId, OpenMode.ForRead) as RegAppTable;
+                var table = trans.GetObject(db.RegAppTableId, OpenMode.ForRead) as RegAppTable;
                 foreach (string appName in appNames)
                 {
                     if (!table.Has(appName))
@@ -450,10 +404,10 @@ namespace AutoCADCommands
                             Name = appName
                         };
                         table.Add(record);
-                        transaction.AddNewlyCreatedDBObject(record, true);
+                        trans.AddNewlyCreatedDBObject(record, true);
                     }
                 }
-                transaction.Commit();
+                trans.Commit();
             }
         }
 
@@ -461,53 +415,38 @@ namespace AutoCADCommands
 
         #region code
 
-        //
-        // Code - newly 20121224
-        //
-
-        /// <summary>
-        /// 增加编码，覆盖原有编码
-        /// </summary>
-        public static void SetCode(this Entity ent, string code)
+        [Obsolete("Legacy data store mechanism. Use FlexDataStore instead.")]
+        public static void SetCode(this Entity entity, string code)
         {
-            ent.XData = new ResultBuffer(new TypedValue[]
-                { new TypedValue((int)DxfCode.ExtendedDataRegAppName, Consts.AppNameForCode),
-                  new TypedValue((int)DxfCode.ExtendedDataAsciiString, code) });
-        }
-
-        /// <summary>
-        /// 增加编码，覆盖原有编码
-        /// </summary>
-        /// <param name="id"></param>
-        /// <param name="code"></param>
-        public static void SetCode(this ObjectId id, string code)
-        {
-            SetCode(id, code, HostApplicationServices.WorkingDatabase);
-        }
-
-        internal static void SetCode(ObjectId id, string code, Database db)
-        {
-            using (Transaction trans = db.TransactionManager.StartTransaction())
+            entity.XData = new ResultBuffer(new[]
             {
-                Entity ent = (Entity)trans.GetObject(id, OpenMode.ForWrite);
-                SetCode(ent, code);
+                new TypedValue((int)DxfCode.ExtendedDataRegAppName, Consts.AppNameForCode),
+                new TypedValue((int)DxfCode.ExtendedDataAsciiString, code)
+            });
+        }
+
+        [Obsolete("Legacy data store mechanism. Use FlexDataStore instead.")]
+        public static void SetCode(this ObjectId entityId, string code)
+        {
+            using (var trans = entityId.Database.TransactionManager.StartTransaction())
+            {
+                var entity = (Entity)trans.GetObject(entityId, OpenMode.ForWrite);
+                DbHelper.SetCode(entity, code);
                 trans.Commit();
             }
         }
 
-        /// <summary>
-        /// 取得编码
-        /// </summary>
-        public static string GetCode(this Entity ent)
+        [Obsolete("Legacy data store mechanism. Use FlexDataStore instead.")]
+        public static string GetCode(this Entity entity)
         {
-            ResultBuffer resBuf = ent.GetXDataForApplication(Consts.AppNameForCode);
+            var resBuf = entity.GetXDataForApplication(Consts.AppNameForCode);
             if (resBuf == null)
             {
                 return null;
             }
-            foreach (TypedValue tValue in resBuf.AsArray())
+            foreach (var tValue in resBuf.AsArray())
             {
-                if (tValue.TypeCode == 1000)
+                if (tValue.TypeCode == (int)DxfCode.ExtendedDataAsciiString)
                 {
                     return tValue.Value.ToString();
                 }
@@ -515,22 +454,13 @@ namespace AutoCADCommands
             return null;
         }
 
-        /// <summary>
-        /// 取得编码
-        /// </summary>
-        /// <param name="id"></param>
-        /// <returns></returns>
-        public static string GetCode(this ObjectId id)
+        [Obsolete("Legacy data store mechanism. Use FlexDataStore instead.")]
+        public static string GetCode(this ObjectId entityId)
         {
-            return GetCode(id, HostApplicationServices.WorkingDatabase);
-        }
-
-        internal static string GetCode(ObjectId id, Database db)
-        {
-            using (Transaction trans = db.TransactionManager.StartTransaction())
+            using (var trans = entityId.Database.TransactionManager.StartTransaction())
             {
-                Entity ent = (Entity)trans.GetObject(id, OpenMode.ForRead);
-                return GetCode(ent);
+                var entity = (Entity)trans.GetObject(entityId, OpenMode.ForRead);
+                return DbHelper.GetCode(entity);
             }
         }
 
@@ -542,7 +472,7 @@ namespace AutoCADCommands
         /// Returns a dictionary of a block reference's block attribute names and ObjectIds.
         /// </summary>
         /// <param name="blockReference">The block reference.</param>
-        /// <returns></returns>
+        /// <returns>The result.</returns>
         public static Dictionary<string, ObjectId> GetBlockAttributeIds(this BlockReference blockReference)
         {
             var attrs = new Dictionary<string, ObjectId>();
@@ -551,9 +481,9 @@ namespace AutoCADCommands
                 // if block reference is already write enabled, trying to OpenForRead will throw.
                 if (blockReference.IsWriteEnabled)
                 {
-                    attrId.QOpenForWrite<AttributeReference>(x =>
+                    attrId.QOpenForWrite<AttributeReference>(attr =>
                     {
-                        attrs.Add(x.Tag, attrId);
+                        attrs.Add(attr.Tag, attrId);
                     });
                 }
                 else
@@ -567,21 +497,21 @@ namespace AutoCADCommands
         }
 
         /// <summary>
-        /// 获取块属性集合
+        /// Gets block attributes.
         /// </summary>
-        /// <param name="br"></param>
-        /// <returns></returns>
-        public static Dictionary<string, string> GetBlockAttributes(this BlockReference br)
+        /// <param name="blockReference">The block reference.</param>
+        /// <returns>The result.</returns>
+        public static Dictionary<string, string> GetBlockAttributes(this BlockReference blockReference)
         {
-            Dictionary<string, string> attrs = new Dictionary<string, string>();
-            foreach (ObjectId attrId in br.AttributeCollection)
+            var attrs = new Dictionary<string, string>();
+            foreach (ObjectId attrId in blockReference.AttributeCollection)
             {
                 // if block reference is already write enabled, trying to OpenForRead will throw.
-                if (br.IsWriteEnabled)
+                if (blockReference.IsWriteEnabled)
                 {
-                    attrId.QOpenForWrite<AttributeReference>(x =>
+                    attrId.QOpenForWrite<AttributeReference>(attr =>
                    {
-                       attrs.Add(x.Tag, x.TextString);
+                       attrs.Add(attr.Tag, attr.TextString);
                    });
                 }
                 else
@@ -594,39 +524,37 @@ namespace AutoCADCommands
         }
 
         /// <summary>
-        /// 获取块属性 newly 20140805
+        /// Get block attribute.
         /// </summary>
-        /// <param name="br"></param>
-        /// <param name="tag"></param>
-        /// <returns></returns>
-        public static string GetBlockAttribute(this BlockReference br, string tag)
+        /// <param name="blockReference">The block reference.</param>
+        /// <param name="tag">The tag.</param>
+        /// <returns>The value.</returns>
+        public static string GetBlockAttribute(this BlockReference blockReference, string tag)
         {
-            Dictionary<string, string> attrs = GetBlockAttributes(br);
+            var attrs = DbHelper.GetBlockAttributes(blockReference);
             if (attrs.ContainsKey(tag))
             {
                 return attrs[tag];
             }
-            else
-            {
-                return null;
-            }
+
+            return null;
         }
 
         /// <summary>
-        /// 定义块属性
+        /// Defines a block attribute.
         /// </summary>
-        /// <param name="blockName"></param>
-        /// <param name="tag"></param>
-        /// <param name="value"></param>
-        /// <param name="prompt"></param>
-        /// <param name="pos"></param>
-        /// <param name="style"></param>
-        public static void DefineBlockAttribute(string blockName, string tag, string value, string prompt, Point3d pos, ObjectId style)
+        /// <param name="blockName">The block name.</param>
+        /// <param name="tag">The tag.</param>
+        /// <param name="value">The value.</param>
+        /// <param name="prompt">The prompt.</param>
+        /// <param name="position">The position.</param>
+        /// <param name="style">The style.</param>
+        public static void DefineBlockAttribute(string blockName, string tag, string value, string prompt, Point3d position, ObjectId style)
         {
-            AttributeDefinition ad = new AttributeDefinition(pos, value, tag, prompt, style);
-            using (Transaction trans = HostApplicationServices.WorkingDatabase.TransactionManager.StartTransaction())
+            var ad = new AttributeDefinition(position, value, tag, prompt, style);
+            using (var trans = HostApplicationServices.WorkingDatabase.TransactionManager.StartTransaction())
             {
-                BlockTableRecord block = trans.GetObject(GetBlockId(blockName), OpenMode.ForWrite) as BlockTableRecord;
+                var block = trans.GetObject(DbHelper.GetBlockId(blockName), OpenMode.ForWrite) as BlockTableRecord;
                 block.AppendEntity(ad);
                 trans.AddNewlyCreatedDBObject(ad, true);
                 trans.Commit();
@@ -667,10 +595,6 @@ namespace AutoCADCommands
 
         #region ezdata
 
-        //
-        // EzData - newly 20140520
-        //
-
         public static string GetData(this ObjectId id, string dict, string key)
         {
             return CustomObjectDictionary.GetValue(id, dict, key);
@@ -685,10 +609,7 @@ namespace AutoCADCommands
 
         #region tags
 
-        //
-        // Tags - 20140520
-        //
-
+        [Obsolete("Legacy data store mechanism. Use FlexDataStore instead.")]
         public static bool HasTag(this DBObject dbo, string tag)
         {
             var buffer = dbo.GetXDataForApplication(Consts.AppNameForTags);
@@ -696,20 +617,17 @@ namespace AutoCADCommands
                 && x.Value == tag);
         }
 
+        [Obsolete("Legacy data store mechanism. Use FlexDataStore instead.")]
         public static bool HasTag(this ObjectId id, string tag)
         {
-            return HasTag(id, tag, HostApplicationServices.WorkingDatabase);
-        }
-
-        internal static bool HasTag(ObjectId id, string tag, Database db)
-        {
-            using (Transaction trans = db.TransactionManager.StartTransaction())
+            using (var trans = id.Database.TransactionManager.StartTransaction())
             {
-                DBObject dbo = (DBObject)trans.GetObject(id, OpenMode.ForWrite);
-                return HasTag(dbo, tag);
+                var dbo = (DBObject)trans.GetObject(id, OpenMode.ForWrite);
+                return DbHelper.HasTag(dbo, tag);
             }
         }
 
+        [Obsolete("Legacy data store mechanism. Use FlexDataStore instead.")]
         public static void AddTag(this DBObject dbo, string tag)
         {
             var buffer = dbo.GetXDataForApplication(Consts.AppNameForTags);
@@ -717,21 +635,18 @@ namespace AutoCADCommands
             dbo.XData = buffer;
         }
 
+        [Obsolete("Legacy data store mechanism. Use FlexDataStore instead.")]
         public static void AddTag(this ObjectId id, string tag)
         {
-            AddTag(id, tag, HostApplicationServices.WorkingDatabase);
-        }
-
-        internal static void AddTag(ObjectId id, string tag, Database db)
-        {
-            using (Transaction trans = db.TransactionManager.StartTransaction())
+            using (var trans = id.Database.TransactionManager.StartTransaction())
             {
-                DBObject dbo = (DBObject)trans.GetObject(id, OpenMode.ForWrite);
-                AddTag(dbo, tag);
+                var dbo = (DBObject)trans.GetObject(id, OpenMode.ForWrite);
+                DbHelper.AddTag(dbo, tag);
                 trans.Commit();
             }
         }
 
+        [Obsolete("Legacy data store mechanism. Use FlexDataStore instead.")]
         public static void RemoveTag(this DBObject dbo, string tag)
         {
             var buffer = dbo.GetXDataForApplication(Consts.AppNameForTags);
@@ -740,17 +655,13 @@ namespace AutoCADCommands
             dbo.XData = new ResultBuffer(data);
         }
 
+        [Obsolete("Legacy data store mechanism. Use FlexDataStore instead.")]
         public static void RemoveTag(this ObjectId id, string tag)
         {
-            RemoveTag(id, tag, HostApplicationServices.WorkingDatabase);
-        }
-
-        internal static void RemoveTag(ObjectId id, string tag, Database db)
-        {
-            using (Transaction trans = db.TransactionManager.StartTransaction())
+            using (var trans = id.Database.TransactionManager.StartTransaction())
             {
-                DBObject dbo = (DBObject)trans.GetObject(id, OpenMode.ForWrite);
-                RemoveTag(dbo, tag);
+                var dbo = (DBObject)trans.GetObject(id, OpenMode.ForWrite);
+                DbHelper.RemoveTag(dbo, tag);
                 trans.Commit();
             }
         }
@@ -763,22 +674,21 @@ namespace AutoCADCommands
         /// <remarks>
         /// Call this at the launch of your app and each time you create new doc.
         /// </remarks>
+        [Obsolete("Legacy data store mechanism. Use FlexDataStore instead.")]
         public static void InitializeDatabase(Database db = null)
         {
-            if (db == null)
-            {
-                db = HostApplicationServices.WorkingDatabase;
-            }
-
-            var appNames = new[]
+            DbHelper.AffirmRegApp(db ?? HostApplicationServices.WorkingDatabase, new[]
             {
                 Consts.AppNameForCode,
                 Consts.AppNameForID,
                 Consts.AppNameForName,
                 Consts.AppNameForTags
-            };
+            });
+        }
 
-            AffirmRegApp(db, appNames);
+        internal static Database GetDatabase(IEnumerable<ObjectId> objectIds)
+        {
+            return objectIds.Select(id => id.Database).Single();
         }
     }
 }
