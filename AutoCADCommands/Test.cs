@@ -3,11 +3,12 @@ using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
 using Autodesk.AutoCAD.Runtime;
+using Dreambuild.AutoCAD.Internal;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace AutoCADCommands
+namespace Dreambuild.AutoCAD
 {
     /// <summary>
     /// Tests and samples
@@ -590,7 +591,6 @@ namespace AutoCADCommands
                     .QSelect(x => x.Layer)
                     .Distinct()
                     .Select(x => $"{x}_Label")
-                    .ToList()
                     .ForEach(x => DbHelper.GetLayerId(x));
             }
             else

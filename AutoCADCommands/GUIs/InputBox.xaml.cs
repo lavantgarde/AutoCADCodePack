@@ -12,14 +12,14 @@ using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
 
-namespace AutoCADCommands
+namespace Dreambuild.AutoCAD
 {
     /// <summary>
     /// InputBox.xaml code behind.
     /// </summary>
     public partial class InputBox : Window
     {
-        public string Value { get { return txtValue.Text; } }
+        public string Value => this.InputTextBox.Text;
 
         public InputBox()
         {
@@ -30,7 +30,7 @@ namespace AutoCADCommands
         {
             InitializeComponent();
 
-            txtValue.Text = defaultValue;
+            this.InputTextBox.Text = defaultValue;
         }
 
         public InputBox(string tip, string defaultValue)
@@ -38,15 +38,15 @@ namespace AutoCADCommands
             InitializeComponent();
 
             this.Title = tip;
-            txtValue.Text = defaultValue;
+            this.InputTextBox.Text = defaultValue;
         }
 
-        private void btnOk_Click(object sender, RoutedEventArgs e)
+        private void OkButton_Click(object sender, RoutedEventArgs e)
         {
             this.DialogResult = true;
         }
 
-        private void btnCancel_Click(object sender, RoutedEventArgs e)
+        private void CancelButton_Click(object sender, RoutedEventArgs e)
         {
             this.DialogResult = false;
         }

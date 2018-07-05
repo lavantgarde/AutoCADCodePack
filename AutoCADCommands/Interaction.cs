@@ -4,6 +4,7 @@ using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
 using Autodesk.AutoCAD.GraphicsInterface;
 using Autodesk.Windows;
+using Dreambuild.AutoCAD.Internal;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -13,12 +14,12 @@ using Application = Autodesk.AutoCAD.ApplicationServices.Application;
 using ColorDialog = Autodesk.AutoCAD.Windows.ColorDialog;
 using Polyline = Autodesk.AutoCAD.DatabaseServices.Polyline;
 
-namespace AutoCADCommands
+namespace Dreambuild.AutoCAD
 {
     /// <summary>
     /// Command-line user interactions.
     /// </summary>
-    public class Interaction
+    public static class Interaction
     {
         /// <summary>
         /// Gets the MDI active docutment's editor.
@@ -125,7 +126,7 @@ namespace AutoCADCommands
                 AllowNone = true
             }; // mod 20140527
 
-            keywords.ToList().ForEach(key => opt.Keywords.Add(key));
+            keywords.ForEach(key => opt.Keywords.Add(key));
             opt.Keywords.Default = keywords[defaultIndex];
 
             var res = ed.GetKeywords(opt);

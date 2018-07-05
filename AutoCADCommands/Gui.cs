@@ -9,7 +9,7 @@ using AcadApplication = Autodesk.AutoCAD.ApplicationServices.Application;
 using WinFormsPropertyGrid = System.Windows.Forms.PropertyGrid;
 using WpfWindow = System.Windows.Window;
 
-namespace AutoCADCommands
+namespace Dreambuild.AutoCAD
 {
     /// <summary>
     /// The GUI component gallery.
@@ -92,7 +92,7 @@ namespace AutoCADCommands
             {
                 Height = 200
             };
-            choices.ToList().ForEach(x => list.Items.Add(new ListBoxItem
+            choices.ForEach(x => list.Items.Add(new ListBoxItem
             {
                 Content = x
             }));
@@ -142,7 +142,7 @@ namespace AutoCADCommands
             {
                 Height = 200
             };
-            choices.ToList().ForEach(x => list.Items.Add(new CheckBox
+            choices.ForEach(x => list.Items.Add(new CheckBox
             {
                 Content = x
             }));
@@ -180,7 +180,7 @@ namespace AutoCADCommands
                 Height = height,
                 Title = title
             };
-            tr.txtContent.Text = content;
+            tr.ContentArea.Text = content;
             if (modal)
             {
                 AcadApplication.ShowModalWindow(tr);

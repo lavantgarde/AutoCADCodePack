@@ -7,7 +7,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Polyline = Autodesk.AutoCAD.DatabaseServices.Polyline;
 
-namespace AutoCADCommands
+namespace Dreambuild.AutoCAD
 {
     /// <summary>
     /// The "Draw" module: directly draw entities (with AutoCAD-command-like functions)
@@ -432,7 +432,7 @@ namespace AutoCADCommands
                 hatch.SetHatchPattern(HatchPatternType.PreDefined, hatchName);
                 hatch.PatternAngle = angle; // PatternAngle has to be after SetHatchPattern(). This is AutoCAD .NET SDK violating Framework Design Guidelines, which requires properties to be set in arbitrary order.
                 hatch.HatchStyle = HatchStyle.Outer;
-                loopIds.ToList().ForEach(loop => hatch.AppendLoop(
+                loopIds.ForEach(loop => hatch.AppendLoop(
                     HatchLoopTypes.External,
                     new ObjectIdCollection(new[] { loop })));
 
@@ -1137,7 +1137,7 @@ namespace AutoCADCommands
             var poly = new Polyline();
             Enumerable
                 .Range(0, vertices.Count)
-                .ToList().ForEach(index => poly.AddVertexAt(
+                .ForEach(index => poly.AddVertexAt(
                     index: index,
                     pt: vertices[index].Item1.ToPoint2d(),
                     bulge: vertices[index].Item2,
