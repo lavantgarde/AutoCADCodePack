@@ -97,7 +97,7 @@ namespace Dreambuild.AutoCAD
         {
             using (var trans = DbHelper.GetDatabase(ids).TransactionManager.StartTransaction())
             {
-                return ids.Select(x => trans.GetObject(x, OpenMode.ForRead)).ToArray();
+                return ids.Select(id => trans.GetObject(id, OpenMode.ForRead)).ToArray();
             }
         }
 
@@ -111,7 +111,7 @@ namespace Dreambuild.AutoCAD
         {
             using (var trans = DbHelper.GetDatabase(ids).TransactionManager.StartTransaction())
             {
-                return ids.Select(x => trans.GetObject(x, OpenMode.ForRead) as T).ToArray();
+                return ids.Select(id => trans.GetObject(id, OpenMode.ForRead) as T).ToArray();
             }
         }
 
@@ -173,7 +173,7 @@ namespace Dreambuild.AutoCAD
         {
             using (var trans = DbHelper.GetDatabase(ids).TransactionManager.StartTransaction())
             {
-                var list = ids.Select(x => trans.GetObject(x, OpenMode.ForWrite)).ToArray();
+                var list = ids.Select(id => trans.GetObject(id, OpenMode.ForWrite)).ToArray();
                 action(list);
                 trans.Commit();
             }
@@ -189,7 +189,7 @@ namespace Dreambuild.AutoCAD
         {
             using (var trans = DbHelper.GetDatabase(ids).TransactionManager.StartTransaction())
             {
-                var list = ids.Select(x => trans.GetObject(x, OpenMode.ForWrite) as T).ToArray();
+                var list = ids.Select(id => trans.GetObject(id, OpenMode.ForWrite) as T).ToArray();
                 action(list);
                 trans.Commit();
             }
@@ -205,7 +205,7 @@ namespace Dreambuild.AutoCAD
         {
             using (var trans = DbHelper.GetDatabase(ids).TransactionManager.StartTransaction())
             {
-                var list = ids.Select(x => trans.GetObject(x, OpenMode.ForWrite) as T).ToArray();
+                var list = ids.Select(id => trans.GetObject(id, OpenMode.ForWrite) as T).ToArray();
                 var newObjects = action(list).ToList();
                 newObjects.ForEach(newObject => trans.AddNewlyCreatedDBObject(newObject, true));
                 trans.Commit();
@@ -221,7 +221,7 @@ namespace Dreambuild.AutoCAD
         {
             using (var trans = DbHelper.GetDatabase(ids).TransactionManager.StartTransaction())
             {
-                ids.Select(x => trans.GetObject(x, OpenMode.ForWrite)).ToList().ForEach(action);
+                ids.Select(id => trans.GetObject(id, OpenMode.ForWrite)).ToList().ForEach(action);
                 trans.Commit();
             }
         }
@@ -236,7 +236,7 @@ namespace Dreambuild.AutoCAD
         {
             using (var trans = DbHelper.GetDatabase(ids).TransactionManager.StartTransaction())
             {
-                ids.Select(x => trans.GetObject(x, OpenMode.ForWrite) as T).ToList().ForEach(action);
+                ids.Select(id => trans.GetObject(id, OpenMode.ForWrite) as T).ToList().ForEach(action);
                 trans.Commit();
             }
         }
@@ -275,9 +275,9 @@ namespace Dreambuild.AutoCAD
             // Bad implementation.
             using (var trans = DbHelper.GetDatabase(ids).TransactionManager.StartOpenCloseTransaction())
             {
-                var ents = ids.Select(x => trans.GetObject(x, OpenMode.ForRead) as Entity).ToList();
-                double value = ents.Min(mapper);
-                return ents.First(x => mapper(x) == value).ObjectId;
+                var entities = ids.Select(id => trans.GetObject(id, OpenMode.ForRead) as Entity).ToList();
+                double value = entities.Min(mapper);
+                return entities.First(entity => mapper(entity) == value).ObjectId;
             }
         }
 
@@ -287,9 +287,9 @@ namespace Dreambuild.AutoCAD
             // Bad implementation.
             using (var trans = DbHelper.GetDatabase(ids).TransactionManager.StartOpenCloseTransaction())
             {
-                var ents = ids.Select(x => trans.GetObject(x, OpenMode.ForRead) as Entity).ToList();
-                double value = ents.Max(mapper);
-                return ents.First(x => mapper(x) == value).ObjectId;
+                var entities = ids.Select(id => trans.GetObject(id, OpenMode.ForRead) as Entity).ToList();
+                double value = entities.Max(mapper);
+                return entities.First(entity => mapper(entity) == value).ObjectId;
             }
         }
 
@@ -298,30 +298,37 @@ namespace Dreambuild.AutoCAD
         #region Factory methods
 
         /// <summary>
-        /// Selects all entities in current editor.
-        /// </summary>
-        /// <returns>The object IDs.</returns>
-        public static ObjectId[] SelectAll()
-        {
-            var ed = Application.DocumentManager.MdiActiveDocument.Editor;
-            var selRes = ed.SelectAll();
-            if (selRes.Status == PromptStatus.OK)
-            {
-                return selRes.Value.GetObjectIds();
-            }
-
-            return Array.Empty<ObjectId>();
-        }
-
-        /// <summary>
         /// Selects all entities with specified DXF type in current editor.
         /// </summary>
         /// <param name="dxfType">The DXF type.</param>
         /// <returns>The object IDs.</returns>
         public static ObjectId[] SelectAll(string dxfType)
         {
+            return QuickSelection.SelectAll(new TypedValue((int)DxfCode.Start, dxfType));
+        }
+
+        /// <summary>
+        /// Selects all entities with specified filters in current editor.
+        /// </summary>
+        /// <param name="filterList">The filter list.</param>
+        /// <returns>The object IDs.</returns>
+        public static ObjectId[] SelectAll(FilterList filterList)
+        {
+            return QuickSelection.SelectAll(filterList.ToArray());
+        }
+
+        /// <summary>
+        /// Selects all entities with specified filters in current editor.
+        /// </summary>
+        /// <param name="filterList">The filter list.</param>
+        /// <returns>The object IDs.</returns>
+        public static ObjectId[] SelectAll(params TypedValue[] filterList)
+        {
             var ed = Application.DocumentManager.MdiActiveDocument.Editor;
-            var selRes = ed.SelectAll(new SelectionFilter(new[] { new TypedValue((int)DxfCode.Start, dxfType) }));
+            var selRes = filterList != null && filterList.Any() 
+                ? ed.SelectAll(new SelectionFilter(filterList)) 
+                : ed.SelectAll();
+
             if (selRes.Status == PromptStatus.OK)
             {
                 return selRes.Value.GetObjectIds();
@@ -365,5 +372,65 @@ namespace Dreambuild.AutoCAD
         }
 
         #endregion
+    }
+
+    /// <summary>
+    /// Filter list helper.
+    /// </summary>
+    public class FilterList
+    {
+        private readonly List<TypedValue> Cache = new List<TypedValue>();
+
+        /// <summary>
+        /// Creates a new filter list.
+        /// </summary>
+        /// <returns>The result.</returns>
+        public static FilterList Create()
+        {
+            return new FilterList();
+        }
+
+        /// <summary>
+        /// Gets the TypedValue array representation.
+        /// </summary>
+        /// <returns>The array.</returns>
+        public TypedValue[] ToArray()
+        {
+            return this.Cache.ToArray();
+        }
+
+        /// <summary>
+        /// Adds a DXF type filter.
+        /// </summary>
+        /// <param name="dxfTypes">The DXF types.</param>
+        /// <returns>The helper.</returns>
+        public FilterList DxfType(params string[] dxfTypes)
+        {
+            this.Cache.Add(new TypedValue((int)DxfCode.Start, string.Join(",", dxfTypes)));
+            return this;
+        }
+
+        /// <summary>
+        /// Adds a layer filter.
+        /// </summary>
+        /// <param name="layers">The layers.</param>
+        /// <returns>The helper.</returns>
+        public FilterList Layer(params string[] layers)
+        {
+            this.Cache.Add(new TypedValue((int)DxfCode.LayerName, string.Join(",", layers)));
+            return this;
+        }
+
+        /// <summary>
+        /// Adds an arbitrary filter.
+        /// </summary>
+        /// <param name="typeCode">The type code.</param>
+        /// <param name="value">The value.</param>
+        /// <returns>The helper.</returns>
+        public FilterList Filter(int typeCode, string value)
+        {
+            this.Cache.Add(new TypedValue(typeCode, value));
+            return this;
+        }
     }
 }
