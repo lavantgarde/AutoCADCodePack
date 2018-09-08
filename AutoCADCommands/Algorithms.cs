@@ -559,12 +559,16 @@ namespace Dreambuild.AutoCAD
         /// <returns>The result extents.</returns>
         public static Extents3d GetExtents(this IEnumerable<Entity> entities)
         {
-            var extent = entities.First().GeometricExtents;
+            var extents = new Extents3d();
+
             foreach (var ent in entities)
             {
-                extent.AddExtents(ent.GeometricExtents);
+                if (ent.Bounds.HasValue)
+                {
+                    extents.AddExtents(ent.GeometricExtents);
+                }
             }
-            return extent;
+            return extents;
         }
 
         /// <summary>
