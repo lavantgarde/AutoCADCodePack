@@ -102,17 +102,25 @@ namespace Dreambuild.AutoCAD
         }
 
         /// <summary>
-        /// Locks a specified (or the current) document and do things.
+        /// Locks the current document and do things.
         /// </summary>
         /// <param name="action">The things to do.</param>
-        /// <param name="doc">The document to lock. The active document if null and useCurrent is true.</param>
-        /// <param name="useCurrent">True aborts if useCurrent document specified is not found, false defaults to use the current active document.</param>
-        public static void LockAndExecute(Action action, Document doc = null, bool useCurrent = true)
+        public static void LockAndExecute(Action action)
         {
-            if (doc == null && !useCurrent) { return; }
-            var docToUse = doc != null ? doc : Application.DocumentManager.MdiActiveDocument;
+            using (var doclock = Application.DocumentManager.MdiActiveDocument.LockDocument())
+            {
+                action();
+            }
+        }
 
-            using (var doclock = docToUse.LockDocument())
+        /// <summary>
+        /// Locks a specified document and do things.
+        /// </summary>
+        /// <param name="doc">The document to lock.</param>
+        /// <param name="action">Then things to do.</param>
+        public static void LockAndExecute(Document doc, Action action)
+        {
+            using (var doclock = doc.LockDocument())
             {
                 action();
             }
