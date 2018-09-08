@@ -417,7 +417,7 @@ namespace Dreambuild.AutoCAD
         public static ObjectId Hatch(ObjectId[] loopIds, string hatchName = "SOLID", double scale = 1, double angle = 0, bool associative = false)
         {
             var db = DbHelper.GetDatabase(loopIds);
-            using (Transaction trans = db.TransactionManager.StartTransaction())
+            using (var trans = db.TransactionManager.StartTransaction())
             {
                 var hatch = new Hatch();
                 var space = trans.GetObject(db.CurrentSpaceId, OpenMode.ForWrite) as BlockTableRecord;
@@ -557,7 +557,7 @@ namespace Dreambuild.AutoCAD
         {
             var wipe = new Wipeout();
             wipe.SetFrom(
-                points: new Point2dCollection(points.Select(x => x.ToPoint2d()).ToArray()),
+                points: new Point2dCollection(points.Select(point => point.ToPoint2d()).ToArray()),
                 normal: Vector3d.ZAxis);
 
             var result = Draw.AddToCurrentSpace(wipe);
@@ -841,7 +841,7 @@ namespace Dreambuild.AutoCAD
         {
             ObjectId id;
             Database db = HostApplicationServices.WorkingDatabase;
-            using (Transaction trans = db.TransactionManager.StartTransaction())
+            using (var trans = db.TransactionManager.StartTransaction())
             {
                 id = ((BlockTableRecord)trans.GetObject(SymbolUtilityServices.GetBlockModelSpaceId(db), OpenMode.ForWrite, false)).AppendEntity(ent);
                 trans.AddNewlyCreatedDBObject(ent, true);
@@ -925,7 +925,7 @@ namespace Dreambuild.AutoCAD
         {
             return Enumerable
                 .Range(0, points.Length - 1)
-                .Select(x => Line(points[x], points[x + 1]))
+                .Select(index => Line(points[index], points[index + 1]))
                 .ToArray();
         }
 
@@ -1359,10 +1359,10 @@ namespace Dreambuild.AutoCAD
                 var entity = trans.GetObject(entityId, OpenMode.ForWrite) as Entity;
                 var currentSpace = (BlockTableRecord)trans.GetObject(db.CurrentSpaceId, OpenMode.ForWrite, false);
                 var copyIds = displacements
-                    .Select(x =>
+                    .Select(vector =>
                     {
                         var copy = entity.Clone() as Entity;
-                        copy.TransformBy(Matrix3d.Displacement(x));
+                        copy.TransformBy(Matrix3d.Displacement(vector));
                         var id = currentSpace.AppendEntity(copy);
                         trans.AddNewlyCreatedDBObject(copy, true);
                         return id;
@@ -1531,9 +1531,9 @@ namespace Dreambuild.AutoCAD
             DbHelper
                 .GetEntityIdsInGroup(groupId)
                 .Cast<ObjectId>()
-                .QForEach(x => x.Erase());
+                .QForEach(entity => entity.Erase());
 
-            groupId.QOpenForWrite(x => x.Erase());
+            groupId.QOpenForWrite(group => group.Erase());
         }
 
         /// <summary>
